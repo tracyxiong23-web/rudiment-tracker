@@ -1,6 +1,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 
 // ---- Data: the 40 PAS International Drum Rudiments ----
+// Fires a short vibration on supported devices (Android Chrome). No-ops silently
+// on iOS Safari and desktop, which don't support the Vibration API.
+function haptic(pattern = 10) {
+  try {
+    if (navigator.vibrate) navigator.vibrate(pattern);
+  } catch (e) {}
+}
+
 const RUDIMENTS = [
   { id: "r01", name: "Single Stroke Roll", fam: "ROLL" },
   { id: "r02", name: "Single Stroke Four", fam: "ROLL" },
@@ -239,7 +247,7 @@ function Toast({ toast, onDismiss }) {
     <div
       className="toast"
       style={{
-        position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 60,
+        position: "fixed", left: "50%", bottom: "calc(24px + env(safe-area-inset-bottom))", transform: "translateX(-50%)", zIndex: 60,
         background: COLORS.surfaceRaised, border: `1px solid ${COLORS.hairline}`, borderRadius: 10,
         padding: "10px 12px", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 6px 20px rgba(0,0,0,0.35)",
         maxWidth: "calc(100vw - 32px)",
@@ -487,12 +495,14 @@ function RudimentCard({ item, data, onChangeBpm, onLogToday, onShowInfo }) {
   const [open, setOpen] = useState(false);
   const [justLogged, setJustLogged] = useState(false);
   const [pop, setPop] = useState(false);
+  const [bpmDraft, setBpmDraft] = useState(null);
   const bpm = data.bpm ?? DEFAULT_BPM;
   const status = statusFor(data.lastPracticed);
 
   const handleLog = (e) => {
     e.stopPropagation();
     onLogToday(item.id);
+    haptic(12);
     setJustLogged(true);
     setPop(true);
     setTimeout(() => setJustLogged(false), 1100);
@@ -543,9 +553,20 @@ function RudimentCard({ item, data, onChangeBpm, onLogToday, onShowInfo }) {
                 −
               </button>
               <input
-                type="number" value={bpm} step={BPM_STEP}
-                onChange={(e) => { const v = parseInt(e.target.value, 10); if (!Number.isNaN(v)) onChangeBpm(item.id, Math.min(MAX_BPM, Math.max(MIN_BPM, v))); }}
-                style={{ width: 58, textAlign: "center", background: COLORS.bg, border: `1px solid ${COLORS.hairline}`, borderRadius: 8, color: COLORS.parchment, fontFamily: "'IBM Plex Mono', monospace", fontSize: 15, padding: "6px 4px" }}
+                type="text" inputMode="numeric" pattern="[0-9]*"
+                value={bpmDraft !== null ? bpmDraft : String(bpm)}
+                onFocus={(e) => { setBpmDraft(String(bpm)); e.target.select(); }}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/[^0-9]/g, "");
+                  setBpmDraft(raw);
+                }}
+                onBlur={() => {
+                  const v = parseInt(bpmDraft, 10);
+                  if (!Number.isNaN(v)) onChangeBpm(item.id, Math.min(MAX_BPM, Math.max(MIN_BPM, v)));
+                  setBpmDraft(null);
+                }}
+                onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+                style={{ width: 58, textAlign: "center", background: COLORS.bg, border: `1px solid ${COLORS.hairline}`, borderRadius: 8, color: COLORS.parchment, fontFamily: "'IBM Plex Mono', monospace", fontSize: 16, padding: "6px 4px" }}
               />
               <button
                 onClick={() => onChangeBpm(item.id, Math.min(MAX_BPM, bpm + BPM_STEP))}
@@ -648,7 +669,7 @@ function ProgressRow({ item, entry, onLogToday, onShowInfo }) {
               </div>
               <div style={{ fontSize: 10, color: COLORS.mutedDim, whiteSpace: "nowrap" }}>{history.length} sess.</div>
             </div>
-            <button onClick={() => onLogToday(item.id)} style={{ minWidth: 44, minHeight: 34, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.hairline}`, color: COLORS.brass, borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
+            <button onClick={() => { onLogToday(item.id); haptic(12); }} style={{ minWidth: 44, minHeight: 34, background: COLORS.surfaceRaised, border: `1px solid ${COLORS.hairline}`, color: COLORS.brass, borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
               Log
             </button>
           </div>
@@ -693,7 +714,12 @@ export default function RudimentTracker() {
   const [sort, setSort] = useState("default");
   const [progressSort, setProgressSort] = useState("improved");
   const [infoItem, setInfoItem] = useState(null);
-  const [themeKey, setThemeKey] = useState("walnut");
+  const [themeKey, setThemeKey] = useState(() => {
+    try {
+      const t = localStorage.getItem(THEME_KEY);
+      return t && THEMES[t] ? t : "parchment";
+    } catch (e) { return "parchment"; }
+  });
   const [toast, setToast] = useState(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const toastTimer = useRef(null);
@@ -709,10 +735,6 @@ export default function RudimentTracker() {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) setData(JSON.parse(raw));
     } catch (e) { console.error("Failed to load practice data", e); }
-    try {
-      const t = localStorage.getItem(THEME_KEY);
-      if (t && THEMES[t]) setThemeKey(t);
-    } catch (e) {}
     setLoaded(true);
   }, []);
 
@@ -723,6 +745,7 @@ export default function RudimentTracker() {
 
   const changeTheme = useCallback((key) => {
     setThemeKey(key);
+    haptic(8);
     try { localStorage.setItem(THEME_KEY, key); }
     catch (e) { console.error("Failed to save theme", e); }
   }, []);
@@ -768,6 +791,7 @@ export default function RudimentTracker() {
     setData({});
     persist({});
     setConfirmReset(false);
+    haptic([15, 40, 15]);
     showToast("All progress cleared", null, null);
   }, [persist, showToast]);
 
@@ -847,7 +871,7 @@ export default function RudimentTracker() {
     return (
       <div style={rootStyle}>
         <GlobalStyle />
-        <div style={{ maxWidth: 880, margin: "0 auto", padding: "32px 20px 60px" }}>
+        <div style={{ maxWidth: 880, margin: "0 auto", padding: "calc(32px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(60px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left))" }}>
           <div className="skeleton" style={{ width: 220, height: 30, borderRadius: 6, marginBottom: 10 }} />
           <div className="skeleton" style={{ width: 300, height: 14, borderRadius: 4, marginBottom: 24 }} />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
@@ -861,7 +885,7 @@ export default function RudimentTracker() {
   return (
     <div style={rootStyle}>
       <GlobalStyle />
-      <div style={{ maxWidth: 880, margin: "0 auto", padding: "32px 20px 60px" }}>
+      <div style={{ maxWidth: 880, margin: "0 auto", padding: "calc(32px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(60px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left))" }}>
         <header style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 14 }}>
           <div>
             <div style={{ fontFamily: "'Oswald', sans-serif", fontWeight: 700, fontSize: 30, letterSpacing: 0.5, color: COLORS.parchment, textTransform: "uppercase" }}>
@@ -909,7 +933,7 @@ export default function RudimentTracker() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 22 }}>
               <input
                 placeholder="Search rudiments…" value={query} onChange={(e) => setQuery(e.target.value)}
-                style={{ flex: "1 1 180px", background: COLORS.surface, border: `1px solid ${COLORS.hairline}`, borderRadius: 9, padding: "9px 12px", color: COLORS.parchment, fontFamily: "'Inter', sans-serif", fontSize: 13.5, outline: "none" }}
+                style={{ flex: "1 1 180px", background: COLORS.surface, border: `1px solid ${COLORS.hairline}`, borderRadius: 9, padding: "9px 12px", color: COLORS.parchment, fontFamily: "'Inter', sans-serif", fontSize: 16, outline: "none" }}
               />
               <select value={filter} onChange={(e) => setFilter(e.target.value)} style={selectStyle}>
                 {FILTERS.map((f) => (<option key={f} value={f}>{f === "ALL" ? "All families" : f.charAt(0) + f.slice(1).toLowerCase()}</option>))}
@@ -982,5 +1006,5 @@ export default function RudimentTracker() {
 
 const selectStyle = {
   background: COLORS.surface, border: `1px solid ${COLORS.hairline}`, borderRadius: 9,
-  padding: "9px 10px", color: COLORS.parchment, fontFamily: "'Inter', sans-serif", fontSize: 13, outline: "none",
+  padding: "9px 10px", color: COLORS.parchment, fontFamily: "'Inter', sans-serif", fontSize: 16, outline: "none",
 };
